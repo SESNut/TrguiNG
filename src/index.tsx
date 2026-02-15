@@ -52,3 +52,50 @@ async function onFocusChange(focused: boolean, config: Config) {
         }
     }
 }
+
+function setupTauriEvents(config: Config, app: Root) {
+    // --- AUTO-CLOSE ON EXTERNAL ADD ---
+    // Wrapped in void to prevent blocking the app startup
+    void appWindow.listen("close-after-external-add", () => {
+        setTimeout(async () => {
+            if (config.values.app.onClose === "hide") {
+                void appWindow.emit("window-hidden");
+                void appWindow.hide();
+            } else if (config.values.app.onClose === "quit") {
+                config.save().finally(() => {
+                    void appWindow.emit("app-exit");
+                });
+            } else {
+                void onCloseRequested(app, config);
+            }
+        }, 1500);
+    });
+
+    void appWindow.onCloseRequested((event) => {
+        if (config.values.app.onClose === "hide") {
+            event.preventDefault();
+            void appWindow.emit("window-hidden");
+            void appWindow.hide();
+        } else if (config.values.app.onClose === "quit") {
+            event.preventDefault();
+            config.save().finally(() => {
+                void appWindow.emit("app-exit");
+            });
+        } else {
+            void onCloseRequested(app, config);
+        }
+    });
+
+    void appWindow.listen("exit-requested", () => {
+        void onCloseRequested(app, config);
+    });
+
+    void appWindow.onFocusChanged(({ payload: focused }) => {
+        void onFocusChange(focused, config);
+    });
+
+    void appWindow.onResized(({ payload: size }) => {
+        if (size.width > 0 && size.height > 0) {
+            config.values.app.window.size = [size.width, size.height];
+        }
+    });
