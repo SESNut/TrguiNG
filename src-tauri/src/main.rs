@@ -1,18 +1,5 @@
 // TrguiNG - next gen remote GUI for transmission torrent daemon
-// Copyright (C) 2023  qu1ck (mail at qu1ck.org)
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published
-// by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Modified to support auto-close on external association add
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -92,23 +79,23 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let app: AppHandle = app.handle().clone();
+    let app_handle: AppHandle = app.handle().clone();
 
     async_runtime::spawn(async move {
-        let poller_state: State<PollerHandle> = app.state();
+        let poller_state: State<PollerHandle> = app_handle.state();
         let mut poller = poller_state.0.lock().await;
-        poller.set_app_handle(&app);
+        poller.set_app_handle(&app_handle);
 
-        let listener_state: State<ListenerHandle> = app.state();
+        let listener_state: State<ListenerHandle> = app_handle.state();
         let listener_lock = listener_state.0.clone();
 
         let mut listener = listener_lock.write().await;
         listener.init().await;
-        listener.listen(&app).await.ok();
+        listener.listen(&app_handle).await.ok();
 
         if listener.listening {
             let listener_lock1 = listener_lock.clone();
-            let _ = app.listen("listener-start", move |_| {
+            let _ = app_handle.listen("listener-start", move |_| {
                 let listener_lock = listener_lock1.clone();
                 async_runtime::spawn(async move {
                     let mut listener = listener_lock.write().await;
@@ -116,22 +103,29 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                 });
             });
             let listener_lock2 = listener_lock.clone();
-            let _ = app.listen("listener-pause", move |_| {
+            let _ = app_handle.listen("listener-pause", move |_| {
                 let listener_lock = listener_lock2.clone();
                 async_runtime::spawn(async move {
                     let mut listener = listener_lock.write().await;
                     listener.pause().await;
                 });
             });
-            tray::toggle_main_window(&app, None);
+            tray::toggle_main_window(&app_handle, None);
         }
         drop(listener);
 
-        let app_clone = app.clone();
+        let app_clone = app_handle.clone();
         async_runtime::spawn(async move {
             let listener = listener_lock.read().await;
-            if let Err(e) = listener.send(&torrents, app_clone).await {
+            
+            // Check if we are actually adding something from the CLI
+            let has_external_torrents = !torrents.is_empty();
+
+            if let Err(e) = listener.send(&torrents, app_clone.clone()).await {
                 println!("Unable to send args to listener: {e}");
+            } else if has_external_torrents {
+                // Emit event to frontend to signal an external add occurred
+                let _ = app_clone.emit("close-after-external-add", ());
             }
 
             #[cfg(target_os = "macos")]
@@ -141,8 +135,8 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        let app_clone = app.clone();
-        app.listen("app-exit", move |_| {
+        let app_clone = app_handle.clone();
+        app_handle.listen("app-exit", move |_| {
             println!("Exiting");
             let appc = app_clone.clone();
             let _ = app_clone.run_on_main_thread(move || {
@@ -151,8 +145,8 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             });
         });
 
-        let app_clone = app.clone();
-        app.listen("window-hidden", move |_| {
+        let app_clone = app_handle.clone();
+        app_handle.listen("window-hidden", move |_| {
             tray::set_tray_showhide_text(&app_clone, "Show");
         })
     });
