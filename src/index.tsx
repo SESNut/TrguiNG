@@ -4,7 +4,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import React, { lazy, Suspense, useContext } from "react";
 import type { CSSProperties } from "react";
-const { TAURI, appWindow, invoke } = await import(/* webpackChunkName: "taurishim" */"taurishim");
+
+// Ensure 'listen' is imported for global events
+const { TAURI, appWindow, invoke, listen } = await import(/* webpackChunkName: "taurishim" */"taurishim");
 
 const TauriApp = lazy(async () => await import("components/app"));
 const WebApp = lazy(async () => await import("components/webapp"));
@@ -36,8 +38,8 @@ async function onFocusChange(focused: boolean, config: Config) {
 }
 
 function setupTauriEvents(config: Config, app: Root) {
-    // Listener for external file association adds
-    void appWindow.listen("close-after-external-add", () => {
+    // GLOBAL LISTENER: Catches the signal from the Rust AppHandle
+    void listen("close-after-external-add", () => {
         setTimeout(async () => {
             const behavior = config.values.app.onClose;
             if (behavior === "hide") {
