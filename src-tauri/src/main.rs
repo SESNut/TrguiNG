@@ -11,7 +11,7 @@ use std::{sync::Arc, time::Duration};
 use createtorrent::CreationRequestsHandle;
 use geoip::MmdbReaderHandle;
 use poller::PollerHandle;
-use tauri::{async_runtime, App, AppHandle, Listener, Manager, State};
+use tauri::{async_runtime, App, AppHandle, Listener, Manager, State, Emitter};
 use tauri_plugin_cli::CliExt;
 use tokio::sync::RwLock;
 use torrentcache::TorrentCacheHandle;
