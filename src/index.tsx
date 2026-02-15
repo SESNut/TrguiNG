@@ -54,8 +54,7 @@ async function onFocusChange(focused: boolean, config: Config) {
 }
 
 function setupTauriEvents(config: Config, app: Root) {
-    // --- AUTO-CLOSE ON EXTERNAL ADD ---
-    // Wrapped in void to prevent blocking the app startup
+    // Auto-close when receiving signal from Rust backend
     void appWindow.listen("close-after-external-add", () => {
         setTimeout(async () => {
             if (config.values.app.onClose === "hide") {
@@ -99,3 +98,113 @@ function setupTauriEvents(config: Config, app: Root) {
             config.values.app.window.size = [size.width, size.height];
         }
     });
+
+    void appWindow.onMoved(({ payload: size }) => {
+        if (size.x > -32000 && size.y > -32000) {
+            config.values.app.window.position = [size.x, size.y];
+        }
+    });
+}
+
+function setupWebEvents(config: Config) {
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+            config.save().catch(() => { });
+        }
+    });
+}
+
+async function restoreWindow(config: Config) {
+    const positionWindow = async function () {
+        const pos = config.values.app.window.position;
+        if (pos?.length === 2 && pos?.[0] > -32000 && pos?.[1] > -32000) {
+            await appWindow.setPosition(pos);
+        } else {
+            await appWindow.center();
+        }
+    };
+
+    const sizeCheck = async function () {
+        const sz = await appWindow.getSize();
+        const delta = [sz.width - size[0], sz.height - size[1]];
+        if (delta[0] != 0 || delta[1] != 0) {
+            console.log("Window size delta", delta);
+            await appWindow.setSize([size[0] - delta[0], size[1] - delta[1]]);
+        }
+    };
+
+    const sleep20ms = async function () {
+        await new Promise<void>((r) => setTimeout(r, 20));
+    };
+
+    const size = config.values.app.window.size;
+
+    if (size.length === 2 && size[0] > 100 && size[1] > 100) {
+        await appWindow.setSize(size);
+        void sleep20ms().then(sizeCheck);
+    }
+
+    void positionWindow();
+}
+
+function Loader() {
+    const config = useContext(ConfigContext);
+    const interfaceConfig = config.values.interface;
+    const theme = interfaceConfig.theme;
+    const backgroundColorOverride =
+        interfaceConfig.styleOverrides[theme ?? "light"]?.backgroundColor;
+    const spinnerStyle: CSSProperties = {
+        borderTopColor: `hsla(222, 100%, ${theme === "dark" ? "50%" : "36%"}, 0.376)`,
+    };
+
+    return (
+        <div
+            className="loader-container"
+            style={{
+                backgroundColor:
+                    backgroundColorOverride?.computed ??
+                    (theme === "dark" ? "#1A1B1E" : "#fff"),
+            }}
+        >
+            <div className="lds-ring">
+                <div style={spinnerStyle}></div>
+                <div style={spinnerStyle}></div>
+                <div style={spinnerStyle}></div>
+                <div style={spinnerStyle}></div>
+            </div>
+        </div>
+    );
+}
+
+async function run(config: Config) {
+    const appnode = document.getElementById("app") as HTMLElement;
+    const app = createRoot(appnode);
+
+    if (TAURI) {
+        setupTauriEvents(config, app);
+
+        if (config.values.app.showTrayIcon) {
+            void invoke("create_tray");
+        }
+
+        await restoreWindow(config);
+    } else {
+        setupWebEvents(config);
+    }
+
+    app.render(
+        <React.StrictMode>
+            <ConfigContext.Provider value={config}>
+                <Suspense fallback={<Loader />}>
+                    <CustomMantineProvider>
+                        {TAURI && <TauriApp />}
+                        {!TAURI && <WebApp />}
+                    </CustomMantineProvider>
+                </Suspense>
+            </ConfigContext.Provider>
+        </React.StrictMode>);
+}
+
+window.onload = () => {
+    new Config().read().then(run).catch(console.error);
+};
