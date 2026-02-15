@@ -1,3 +1,7 @@
+/**
+ * TrguiNG - next gen remote GUI for transmission torrent daemon
+ */
+
 import "css/loader.css";
 import { Config, ConfigContext } from "./config";
 import { createRoot } from "react-dom/client";
@@ -5,8 +9,11 @@ import type { Root } from "react-dom/client";
 import React, { lazy, Suspense, useContext } from "react";
 import type { CSSProperties } from "react";
 
-// Ensure 'listen' is imported for global events
-const { TAURI, appWindow, invoke, listen } = await import(/* webpackChunkName: "taurishim" */"taurishim");
+// Standard shim imports
+const { TAURI, appWindow, invoke } = await import(/* webpackChunkName: "taurishim" */"taurishim");
+
+// Import 'listen' directly from the API to avoid shim export errors
+const { listen } = await import("@tauri-apps/api/event");
 
 const TauriApp = lazy(async () => await import("components/app"));
 const WebApp = lazy(async () => await import("components/webapp"));
@@ -38,7 +45,7 @@ async function onFocusChange(focused: boolean, config: Config) {
 }
 
 function setupTauriEvents(config: Config, app: Root) {
-    // GLOBAL LISTENER: Catches the signal from the Rust AppHandle
+    // GLOBAL LISTENER: Catch signal from Rust backend
     void listen("close-after-external-add", () => {
         setTimeout(async () => {
             const behavior = config.values.app.onClose;
