@@ -1,7 +1,3 @@
-/**
- * TrguiNG - next gen remote GUI for transmission torrent daemon
- */
-
 import "css/loader.css";
 import { Config, ConfigContext } from "./config";
 import { createRoot } from "react-dom/client";
@@ -9,11 +5,7 @@ import type { Root } from "react-dom/client";
 import React, { lazy, Suspense, useContext } from "react";
 import type { CSSProperties } from "react";
 
-// Standard shim imports
 const { TAURI, appWindow, invoke } = await import(/* webpackChunkName: "taurishim" */"taurishim");
-
-// Import 'listen' directly from the API to avoid shim export errors
-const { listen } = await import("@tauri-apps/api/event");
 
 const TauriApp = lazy(async () => await import("components/app"));
 const WebApp = lazy(async () => await import("components/webapp"));
@@ -45,23 +37,6 @@ async function onFocusChange(focused: boolean, config: Config) {
 }
 
 function setupTauriEvents(config: Config, app: Root) {
-    // GLOBAL LISTENER: Catch signal from Rust backend
-    void listen("close-after-external-add", () => {
-        setTimeout(async () => {
-            const behavior = config.values.app.onClose;
-            if (behavior === "hide") {
-                void appWindow.emit("window-hidden");
-                void appWindow.hide();
-            } else if (behavior === "quit") {
-                config.save().finally(() => {
-                    void appWindow.emit("app-exit");
-                });
-            } else {
-                void onCloseRequested(app, config);
-            }
-        }, 1500);
-    });
-
     void appWindow.onCloseRequested((event) => {
         if (config.values.app.onClose === "hide") {
             event.preventDefault();
