@@ -1,5 +1,5 @@
 // TrguiNG - next gen remote GUI for transmission torrent daemon
-// Modified to support auto-close on external association add directly in Rust
+// FINAL OVERRIDE: Direct window manipulation via Manager
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -11,7 +11,7 @@ use std::{sync::Arc, time::Duration};
 use createtorrent::CreationRequestsHandle;
 use geoip::MmdbReaderHandle;
 use poller::PollerHandle;
-// Added Manager and WebviewWindow for direct window control
+// Added WebviewWindow and Manager for direct handle access
 use tauri::{async_runtime, App, AppHandle, Listener, Manager, State, Emitter, WebviewWindow};
 use tauri_plugin_cli::CliExt;
 use tokio::sync::RwLock;
@@ -123,17 +123,16 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = listener.send(&torrents, app_clone.clone()).await {
                 println!("Unable to send args to listener: {e}");
             } else if has_external_torrents {
-                // WAIT in Rust for 2 seconds to ensure IPC finished
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                // Give the system 3 seconds to ensure the add is complete
+                tokio::time::sleep(Duration::from_secs(3)).await;
                 
-                // Get the main window directly by label
-                if let Some(window) = app_clone.get_webview_window("main") {
-                    // Force the window to hide or close
-                    // Since we can't easily read the JS config here, 
-                    // we trigger the same logic as the "X" button
+                // Get all windows and hide/close them
+                for window in app_clone.webview_windows().values() {
                     let _ = window.hide();
-                    let _ = app_clone.emit("window-hidden", "");
+                    let _ = window.close(); // Forcefully try both
                 }
+                // Trigger the tray text update
+                let _ = app_clone.emit("window-hidden", "");
             }
 
             #[cfg(target_os = "macos")]
