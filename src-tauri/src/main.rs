@@ -1,5 +1,5 @@
 // TrguiNG - next gen remote GUI for transmission torrent daemon
-// Modified to support auto-close on external association add
+// Modified to support auto-close on external association add directly in Rust
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -11,7 +11,8 @@ use std::{sync::Arc, time::Duration};
 use createtorrent::CreationRequestsHandle;
 use geoip::MmdbReaderHandle;
 use poller::PollerHandle;
-use tauri::{async_runtime, App, AppHandle, Listener, Manager, State, Emitter};
+// Added Manager and WebviewWindow for direct window control
+use tauri::{async_runtime, App, AppHandle, Listener, Manager, State, Emitter, WebviewWindow};
 use tauri_plugin_cli::CliExt;
 use tokio::sync::RwLock;
 use torrentcache::TorrentCacheHandle;
@@ -117,14 +118,22 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         let app_clone = app_handle.clone();
         async_runtime::spawn(async move {
             let listener = listener_lock.read().await;
-            
             let has_external_torrents = !torrents.is_empty();
 
             if let Err(e) = listener.send(&torrents, app_clone.clone()).await {
                 println!("Unable to send args to listener: {e}");
             } else if has_external_torrents {
-                // We emit a global event with a simple string payload
-                let _ = app_clone.emit("close-after-external-add", "payload");
+                // WAIT in Rust for 2 seconds to ensure IPC finished
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                
+                // Get the main window directly by label
+                if let Some(window) = app_clone.get_webview_window("main") {
+                    // Force the window to hide or close
+                    // Since we can't easily read the JS config here, 
+                    // we trigger the same logic as the "X" button
+                    let _ = window.hide();
+                    let _ = app_clone.emit("window-hidden", "");
+                }
             }
 
             #[cfg(target_os = "macos")]
@@ -136,7 +145,6 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
         let app_clone = app_handle.clone();
         app_handle.listen("app-exit", move |_| {
-            println!("Exiting");
             let appc = app_clone.clone();
             let _ = app_clone.run_on_main_thread(move || {
                 appc.cleanup_before_exit();
@@ -169,21 +177,13 @@ fn client_builder() -> reqwest::ClientBuilder {
 }
 
 fn http_clients() -> HttpClients {
-    let default = client_builder()
-        .build()
-        .expect("Failed to initialize http client");
-
-    let insecure = client_builder()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .expect("Failed to initialize insecure http client");
-
+    let default = client_builder().build().expect("Failed to initialize http client");
+    let insecure = client_builder().danger_accept_invalid_certs(true).build().expect("Failed to initialize insecure http client");
     HttpClients { default, insecure }
 }
 
 fn main() {
     let context = tauri::generate_context!();
-
     let app_builder = tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_notification::init())
@@ -217,20 +217,11 @@ fn main() {
         .setup(setup);
 
     #[cfg(target_os = "macos")]
-    let app_builder = app_builder
-        .menu(macos::make_menu)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "appquit" => {
-                tray::exit(app.clone());
-            }
-            _ => {}
-        });
+    let app_builder = app_builder.menu(macos::make_menu).on_menu_event(|app, event| {
+        if event.id().as_ref() == "appquit" { tray::exit(app.clone()); }
+    });
 
-    let app = app_builder
-        .build(context)
-        .expect("error while running tauri application");
-
-    #[allow(clippy::single_match)]
+    let app = app_builder.build(context).expect("error while running tauri application");
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
