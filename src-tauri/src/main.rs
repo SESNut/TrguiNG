@@ -11,7 +11,6 @@ use std::{sync::Arc, time::Duration};
 use createtorrent::CreationRequestsHandle;
 use geoip::MmdbReaderHandle;
 use poller::PollerHandle;
-// Emitter trait is required for the .emit() method in Tauri v2
 use tauri::{async_runtime, App, AppHandle, Listener, Manager, State, Emitter};
 use tauri_plugin_cli::CliExt;
 use tokio::sync::RwLock;
@@ -124,8 +123,8 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = listener.send(&torrents, app_clone.clone()).await {
                 println!("Unable to send args to listener: {e}");
             } else if has_external_torrents {
-                // We target "main" to ensure the event reaches the UI window
-                let _ = app_clone.emit_to("main", "close-after-external-add", "");
+                // We emit a global event with a simple string payload
+                let _ = app_clone.emit("close-after-external-add", "payload");
             }
 
             #[cfg(target_os = "macos")]
